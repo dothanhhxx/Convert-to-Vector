@@ -311,7 +311,16 @@ def get_illustrator_guide():
     return {"guide": ILLUSTRATOR_GUIDE_TEXT}
 
 
-# Mount built frontend if dist directory exists
-FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
-if FRONTEND_DIST.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+# Mount built frontend if dist directory exists (supports local, Render, Docker, HF Spaces)
+candidate_paths = [
+    Path(__file__).resolve().parent.parent.parent / "frontend" / "dist",
+    Path(__file__).resolve().parent.parent / "frontend" / "dist",
+    Path(__file__).resolve().parent / "dist",
+    Path("/app/frontend/dist"),
+    Path("/app/dist"),
+]
+
+for p in candidate_paths:
+    if p.exists() and (p / "index.html").exists():
+        app.mount("/", StaticFiles(directory=str(p), html=True), name="frontend")
+        break
