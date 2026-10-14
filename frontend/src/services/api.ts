@@ -83,11 +83,48 @@ export async function vectorizeImage(
   return res.json();
 }
 
+export interface ExportResult {
+  success: boolean;
+  cancelled?: boolean;
+  savedName?: string;
+}
+
+const FORMAT_CONFIGS: Record<
+  ExportFormatType,
+  { description: string; ext: string; mime: string }
+> = {
+  svg: {
+    description: 'Scalable Vector Graphics (.svg)',
+    ext: 'svg',
+    mime: 'image/svg+xml',
+  },
+  pdf: {
+    description: 'Adobe PDF Vector Document (.pdf)',
+    ext: 'pdf',
+    mime: 'application/pdf',
+  },
+  eps: {
+    description: 'Encapsulated PostScript (.eps)',
+    ext: 'eps',
+    mime: 'application/postscript',
+  },
+  ai: {
+    description: 'Adobe Illustrator Vector Artwork (.ai)',
+    ext: 'ai',
+    mime: 'application/illustrator',
+  },
+  zip: {
+    description: 'Vector Studio All Formats Bundle (.zip)',
+    ext: 'zip',
+    mime: 'application/zip',
+  },
+};
+
 export async function exportVectorFile(
   svg: string,
   format: ExportFormatType,
   filename: string
-): Promise<void> {
+): Promise<ExportResult> {
   const res = await fetch(`${API_BASE}/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -103,20 +140,53 @@ export async function exportVectorFile(
     throw new Error(err.detail || 'Failed to export vector file');
   }
 
-  // Trigger browser download
   const blob = await res.blob();
+  const config = FORMAT_CONFIGS[format] || FORMAT_CONFIGS.svg;
+  const cleanName = filename.replace(/\.[^/.]+$/, '') || 'vector_artwork';
+  const suggestedName = `${cleanName}.${config.ext}`;
+
+  // 1. Try Native File System Access API (showSaveFilePicker)
+  // This opens the OS "Save As" file picker dialog, asking user exactly where to save!
+  if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+    try {
+      // @ts-ignore
+      const fileHandle = await window.showSaveFilePicker({
+        suggestedName,
+        types: [
+          {
+            description: config.description,
+            accept: {
+              [config.mime]: [`.${config.ext}`],
+            },
+          },
+        ],
+      });
+
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return { success: true, savedName: fileHandle.name };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        // User clicked cancel in the save picker dialog
+        return { success: false, cancelled: true };
+      }
+      // If error other than abort, continue to fallback below
+      console.warn('showSaveFilePicker failed, falling back to download link:', err);
+    }
+  }
+
+  // 2. Fallback for browsers without showSaveFilePicker
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  
-  // Extract filename from header or build fallback
-  const ext = format === 'ai' ? 'ai' : format === 'pdf' ? 'pdf' : format === 'eps' ? 'eps' : format === 'zip' ? 'zip' : 'svg';
-  const cleanName = filename.replace(/\.[^/.]+$/, '') || 'vector_artwork';
-  a.download = `${cleanName}.${ext}`;
+  a.download = suggestedName;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
+
+  return { success: true, savedName: suggestedName };
 }
 
 export async function fetchIllustratorGuide(): Promise<string> {
