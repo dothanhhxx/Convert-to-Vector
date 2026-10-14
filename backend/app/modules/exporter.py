@@ -68,11 +68,12 @@ def generate_eps_vector(svg_content: str, title: str = "Vector Studio Export") -
     width = float(rect.width)
     height = float(rect.height)
 
+    safe_title = re.sub(r'[^\x20-\x7E]', '', title).strip() or "Vector Studio Export"
     eps_lines = [
         "%!PS-Adobe-3.0 EPSF-3.0",
         f"%%BoundingBox: 0 0 {int(width + 0.999)} {int(height + 0.999)}",
         f"%%HiResBoundingBox: 0.0 0.0 {width:.4f} {height:.4f}",
-        f"%%Title: {title}",
+        f"%%Title: {safe_title}",
         "%%Creator: Vector Studio - Adobe Illustrator Exporter",
         "%%Pages: 1",
         "%%EndComments",

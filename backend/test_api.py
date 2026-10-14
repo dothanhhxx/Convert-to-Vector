@@ -1,3 +1,7 @@
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from fastapi.testclient import TestClient
 from app.main import app
 import base64
@@ -56,11 +60,23 @@ def test_endpoints():
     print(f"Potrace Success! Paths: {stats_p['pathCount']}, Nodes: {stats_p['nodeCount']}, Time: {stats_p['elapsedMs']}ms")
     assert "<path" in svg_potrace
 
-    print("\nTesting /api/export for all formats...")
+    print("\nTesting /api/export for all formats with ASCII filenames...")
     for fmt in ["svg", "pdf", "eps", "ai", "zip"]:
         res_exp = client.post("/api/export", json={"svg": svg, "format": fmt, "filename": "shield"})
         assert res_exp.status_code == 200, f"Export {fmt} failed: {res_exp.text}"
         print(f" - Export {fmt.upper()}: {len(res_exp.content)} bytes, Content-Type: {res_exp.headers.get('content-type')}")
+
+    print("\nTesting /api/export with Vietnamese Unicode filenames (containing diacritics)...")
+    vn_filenames = ["ảnh_đẹp_guitar", "bản_vẽ_thiết_kế_2026", "cây_đàn_vintage"]
+    for vn_name in vn_filenames:
+        for fmt in ["svg", "pdf", "eps", "ai", "zip"]:
+            res_vn = client.post("/api/export", json={"svg": svg, "format": fmt, "filename": vn_name})
+            assert res_vn.status_code == 200, f"Export with '{vn_name}.{fmt}' failed: {res_vn.text}"
+            disp = res_vn.headers.get("content-disposition", "")
+            # Ensure header encodes cleanly in latin-1 without crash
+            disp.encode("latin-1")
+            assert "filename*=" in disp, f"Missing RFC 5987 filename* in header: {disp}"
+        print(f" - Successfully exported all formats for Vietnamese filename: '{vn_name}'")
 
     print("\nALL BACKEND TESTS PASSED SUCCESSFULLY!")
 

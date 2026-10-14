@@ -5,6 +5,9 @@ FastAPI server powering high-fidelity vector conversion and multi-format export.
 import os
 import base64
 import uuid
+import re
+import unicodedata
+import urllib.parse
 from io import BytesIO
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -251,6 +254,29 @@ def vectorize_endpoint(req: VectorizeRequest):
         raise HTTPException(status_code=500, detail=f"Vectorization failed: {str(e)}")
 
 
+def make_content_disposition(filename: str) -> str:
+    """
+    Constructs an RFC 6266 / RFC 5987 compliant Content-Disposition header.
+    Prevents 'latin-1' codec encoding crashes while preserving full UTF-8 Unicode
+    filenames (such as Vietnamese characters with diacritics) for all modern browsers.
+    """
+    ext = Path(filename).suffix
+    base = Path(filename).stem
+
+    # 1. Transliterate to clean ASCII for legacy fallback
+    nfkd = unicodedata.normalize('NFKD', base)
+    ascii_base = nfkd.encode('ascii', 'ignore').decode('ascii')
+    clean_ascii_base = re.sub(r'[^\w\-]', '_', ascii_base).strip('_')
+    if not clean_ascii_base:
+        clean_ascii_base = "vector_artwork"
+    ascii_filename = f"{clean_ascii_base}{ext}"
+
+    # 2. RFC 5987 percent-encode original Unicode filename (supports full Vietnamese characters)
+    encoded_filename = urllib.parse.quote(filename)
+
+    return f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+
+
 @app.post("/api/export")
 def export_endpoint(req: ExportRequest):
     """
@@ -292,11 +318,12 @@ def export_endpoint(req: ExportRequest):
             raise HTTPException(status_code=400, detail=f"Unsupported format: {fmt}")
 
         out_filename = f"{base_title}.{ext}"
+        content_disposition = make_content_disposition(out_filename)
         return Response(
             content=content_bytes,
             media_type=media_type,
             headers={
-                "Content-Disposition": f'attachment; filename="{out_filename}"',
+                "Content-Disposition": content_disposition,
                 "Content-Length": str(len(content_bytes)),
                 "Access-Control-Expose-Headers": "Content-Disposition"
             }
